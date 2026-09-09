@@ -1,0 +1,47 @@
+server:
+  port: 8080
+
+# NOTA DE VERIFICACIÓN OBLIGATORIA:
+# Desde el release train Spring Cloud 2025.0, los artefactos de Spring Cloud
+# Gateway se renombraron y separaron por stack (WebFlux/WebMVC). No se pudo
+# confirmar en este entorno, carácter por carácter, si la ruta de configuración
+# sigue siendo "spring.cloud.gateway.routes" (compatibilidad retro) o cambió a
+# "spring.cloud.gateway.server.webflux.routes" con el nuevo starter.
+# Antes de ejecutar: correr `mvn spring-boot:run` con logging DEBUG en
+# org.springframework.cloud.gateway y confirmar en el log de arranque que las
+# rutas "airport-service" e "itinerary-service" se registraron correctamente.
+# Si no se registran, ajustar el prefijo de esta sección según la documentación
+# vigente de spring-cloud-starter-gateway-server-webflux 2025.1.1.
+spring:
+  application:
+    name: gateway
+
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: airport-service
+              uri: ${AIRPORT_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/airports/**
+            - id: itinerary-service
+              uri: ${ITINERARY_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/itineraries/**
+
+gateway:
+  cors:
+    allowed-origins: ${FRONTEND_URL:http://localhost:4200}
+  rate-limit:
+    requests-per-second: ${RATE_LIMIT_RPS:20}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+
+logging:
+  pattern:
+    level: "%5p [%X{correlationId}]"
