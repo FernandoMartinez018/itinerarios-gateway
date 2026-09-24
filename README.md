@@ -54,6 +54,14 @@ mvn spring-boot:run
 |---|---|
 | `/api/airports/**` | `airport-service` |
 | `/api/itineraries/**` | `itinerary-service` |
+| `/api/notifications/**` | `notification-service` |
+
+## Observabilidad (Nivel 2, Fase 11)
+
+Agente Java de OpenTelemetry hacia Jaeger (vía `otel-collector`), y métricas
+Micrometer/Prometheus en `/actuator/prometheus`. Como el Gateway es el primer punto
+de entrada, sus trazas son la raíz visible de cada solicitud completa en Jaeger —
+útil para ver de un vistazo cuánto tiempo se va en cada microservicio downstream.
 
 ## Pendiente (Nivel 2+)
 
