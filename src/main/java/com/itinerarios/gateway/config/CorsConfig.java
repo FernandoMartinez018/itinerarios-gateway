@@ -4,7 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.reactive.CorsConfigurationSource;
+import org.springframework.web.cors.reactive.CorsWebFilter;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
@@ -12,8 +12,10 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
+    // En WebFlux un CorsConfigurationSource suelto no se aplica: hace falta el CorsWebFilter
+    // (sin el, el navegador bloqueaba todas las llamadas del frontend).
     @Bean
-    public CorsConfigurationSource corsConfigurationSource(
+    public CorsWebFilter corsWebFilter(
             @Value("${gateway.cors.allowed-origins:http://localhost:4200}") List<String> allowedOrigins) {
 
         CorsConfiguration configuration = new CorsConfiguration();
@@ -25,6 +27,6 @@ public class CorsConfig {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
-        return source;
+        return new CorsWebFilter(source);
     }
 }

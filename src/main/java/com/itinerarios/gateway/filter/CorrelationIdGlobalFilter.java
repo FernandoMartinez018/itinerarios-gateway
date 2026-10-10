@@ -1,5 +1,7 @@
 package com.itinerarios.gateway.filter;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -22,6 +24,8 @@ import java.util.UUID;
 @Component
 public class CorrelationIdGlobalFilter implements GlobalFilter, Ordered {
 
+    private static final Logger log = LoggerFactory.getLogger(CorrelationIdGlobalFilter.class);
+
     public static final String HEADER_NAME = "X-Correlation-ID";
 
     @Override
@@ -36,9 +40,20 @@ public class CorrelationIdGlobalFilter implements GlobalFilter, Ordered {
                 .build();
 
         ServerWebExchange mutatedExchange = exchange.mutate().request(mutatedRequest).build();
-        mutatedExchange.getResponse().getHeaders().add(HEADER_NAME, correlationId);
+        String id = correlationId;
+        // set (no add) justo antes de enviar: el servicio de abajo ya devuelve el header y quedaba duplicado.
+        mutatedExchange.getResponse().beforeCommit(() -> {
+            mutatedExchange.getResponse().getHeaders().set(HEADER_NAME, id);
+            return Mono.empty();
+        });
 
-        return chain.filter(mutatedExchange);
+        // WebFlux no usa MDC por hilo: el Correlation ID va explicito en la linea de acceso (seccion 63).
+        return chain.filter(mutatedExchange).doFinally(signal -> {
+            if (!mutatedRequest.getPath().value().startsWith("/actuator")) {
+                log.info("[{}] {} {} -> {}", id, mutatedRequest.getMethod(), mutatedRequest.getPath(),
+                        mutatedExchange.getResponse().getStatusCode());
+            }
+        });
     }
 
     @Override

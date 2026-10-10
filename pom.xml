@@ -22,7 +22,12 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.1</version>
+        <!-- ADR-015: Spring Cloud 2025.1.x declara compatibilidad con Spring Boot 4.0.x;
+             su verificador de compatibilidad puede abortar el arranque con 4.1.x.
+             El Gateway usa la línea 4.0.x (plan B de ADR-010) hasta que el release
+             train compatible con 4.1 esté verificado. Subir al último parche 4.0.x
+             disponible en Maven Central antes de desplegar. -->
+        <version>4.0.1</version>
         <relativePath/>
     </parent>
 
