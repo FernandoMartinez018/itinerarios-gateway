@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, qa, dev ]
+  pull_request:
+    branches: [ main, qa, dev ]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run unit tests
+        run: mvn -B clean verify
+
+      - name: Build Docker image
+        run: docker build -t itinerarios-gateway:${{ github.sha }} .
+
+  # ---------------------------------------------------------------------------
+  # CD (Fase 13, secciones 82 y 90). Solo corre en push a main, despues de que
+  # build-test pase. Requiere que existan en AWS (Fase 14): el IAM Identity
+  # Provider de GitHub OIDC, el rol indicado en la variable AWS_ROLE_NAME y el
+  # repositorio ECR itinerarios-gateway. Hasta entonces este job fallara en
+  # "Configure AWS credentials" -- es esperado, no un bug del pipeline.
+  # Ver itinerarios-docs/deployment/ci-cd.md.
+  # ---------------------------------------------------------------------------
+  push-image:
+    needs: build-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Permite exigir aprobacion manual (required reviewers) configurada en
+    # GitHub > Settings > Environments, sin cambiar este archivo.
+    environment: production
+    permissions:
+      id-token: write   # necesario para OIDC (seccion 90)
+      contents: read
+    outputs:
+      image-tag: ${{ steps.meta.outputs.sha_short }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Calcular tag inmutable (commit SHA, secciones 54 y 83)
+        id: meta
+        run: echo "sha_short=$(echo ${GITHUB_SHA} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC, sin Access Keys permanentes)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.AWS_ROLE_NAME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag y push
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          REPOSITORY: itinerarios-gateway
+          IMAGE_TAG: ${{ steps.meta.outputs.sha_short }}
+        run: |
+          docker build -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$REPOSITORY:latest" .
+          docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
+          # "latest" solo como tag auxiliar; el despliegue y el rollback
+          # siempre usan el tag inmutable por SHA (secciones 83 y 84).
+          docker push "$REGISTRY/$REPOSITORY:latest"
+
+  # Deploy + smoke test: inertes hasta que exista infraestructura ECS real
+  # (Fase 15). Se activan definiendo la variable de repositorio
+  # DEPLOY_ENABLED=true en GitHub. Requiere ademas .aws/task-definition.json
+  # (se crea en Fase 15) y las variables ECS_CLUSTER, ECS_SERVICE_GATEWAY y
+  # SMOKE_URL_GATEWAY.
+  deploy:
+    needs: push-image
+    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.AWS_ROLE_NAME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Render task definition con la nueva imagen (tag = SHA)
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: .aws/task-definition.json
+          container-name: gateway
+          image: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/itinerarios-gateway:${{ needs.push-image.outputs.image-tag }}
+
+      - name: Deploy a ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ vars.ECS_CLUSTER }}
+          service: ${{ vars.ECS_SERVICE_GATEWAY }}
+          wait-for-service-stability: true
+
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 12); do
+            if curl -sf "${{ vars.SMOKE_URL_GATEWAY }}"; then
+              echo "Smoke test OK"
+              exit 0
+            fi
+            echo "Esperando servicio... intento $i"
+            sleep 10
+          done
+          echo "Smoke test fallo: considerar rollback a la imagen anterior (seccion 84)"
+          exit 1
