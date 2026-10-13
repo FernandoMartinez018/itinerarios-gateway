@@ -16,6 +16,20 @@ spring:
   application:
     name: gateway
 
+  security:
+    oauth2:
+      client:
+        # Token de servicio del Gateway (paso 31): Client Credentials contra Keycloak.
+        registration:
+          gateway:
+            client-id: gateway
+            client-secret: ${OAUTH2_CLIENT_SECRET:}
+            authorization-grant-type: client_credentials
+            scope: airport.read,itinerary.read,itinerary.write,notification.read
+        provider:
+          gateway:
+            token-uri: ${OAUTH2_TOKEN_URI:http://localhost:8180/realms/itinerarios/protocol/openid-connect/token}
+
   cloud:
     gateway:
       server:
