@@ -26,14 +26,33 @@ spring:
             client-secret: ${OAUTH2_CLIENT_SECRET:}
             authorization-grant-type: client_credentials
             scope: airport.read,itinerary.read,itinerary.write,notification.read
+          # Login de usuarios del frontend (BFF, ADR-018): Authorization Code + PKCE, mismo cliente confidencial.
+          keycloak:
+            client-id: gateway
+            client-secret: ${OAUTH2_CLIENT_SECRET:}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope: openid,profile,email
         provider:
           gateway:
             token-uri: ${OAUTH2_TOKEN_URI:http://localhost:8180/realms/itinerarios/protocol/openid-connect/token}
+          keycloak:
+            # Relativa a proposito: el navegador llega a Keycloak por el nginx del frontend (mismo origen).
+            authorization-uri: /realms/itinerarios/protocol/openid-connect/auth
+            # El resto va por la red interna (backchannel).
+            token-uri: ${KEYCLOAK_INTERNAL_URL:http://localhost:8180}/realms/itinerarios/protocol/openid-connect/token
+            jwk-set-uri: ${KEYCLOAK_INTERNAL_URL:http://localhost:8180}/realms/itinerarios/protocol/openid-connect/certs
+            # Sin user-info-uri a proposito: nombre y correo vienen en el ID token, y Keycloak rechazaria el
+            # access token en /userinfo por la red interna (su iss es el host del navegador, no keycloak:8080).
+            user-name-attribute: preferred_username
 
   cloud:
     gateway:
       server:
         webflux:
+          # La cookie de sesion del usuario no sale del Gateway: los servicios reciben solo el token de servicio.
+          default-filters:
+            - RemoveRequestHeader=Cookie
           routes:
             - id: airport-service
               uri: ${AIRPORT_SERVICE_URL:http://localhost:8081}
@@ -49,6 +68,8 @@ spring:
                 - Path=/api/notifications/**
 
 gateway:
+  auth:
+    end-session-path: /realms/itinerarios/protocol/openid-connect/logout
   cors:
     allowed-origins: ${FRONTEND_URL:http://localhost:4200}
   rate-limit:
